@@ -124,7 +124,7 @@ async fn spf_tracer_read_fd(tracer: SpfTracer, mut stop_rx: broadcast::Receiver<
     let mut last_timestamp: Option<f64> = None;
     let time_threshold = 1.0;
 
-    let log_path = Path::new("LOOOOOOG");
+    let log_path = Path::new("spf.log");
     let mut log_file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
