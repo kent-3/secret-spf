@@ -13,6 +13,7 @@ use tokio::{
     sync::broadcast,
     time::{sleep, Duration},
 };
+#[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
@@ -140,7 +141,6 @@ async fn spf_tracer_read_fd(tracer: SpfTracer, mut stop_rx: broadcast::Receiver<
             line = lines.next_line() => {
                 match line {
                     Ok(Some(l)) => {
-                        // Extract the timestamp from the line
                         if let Some(timestamp) = extract_timestamp(&l) {
                             trace!(timestamp);
                             if let Some(last) = last_timestamp {
@@ -179,28 +179,10 @@ fn extract_timestamp(line: &str) -> Option<f64> {
         .captures(line)
         .and_then(|caps| caps.get(1).map(|m| m.as_str().parse().ok()))
         .flatten()
-    // line.split_whitespace().nth(4).and_then(|s| s.parse().ok())
 }
 
 async fn spf_tracer_runloop(tracer: SpfTracer, stop_rx: broadcast::Receiver<()>) -> Result<()> {
-    spf_tracer_read_fd(tracer, stop_rx).await?;
-
-    // loop {
-    //     tokio::select! {
-    //         result = spf_tracer_read_fd(tracer, stop_rx) => {
-    //             if let Err(e) = result {
-    //                 error!("Error reading from trace_pipe: {:?}", e);
-    //             }
-    //             break;
-    //         },
-    //         _ = signal::ctrl_c() => {
-    //             println!("Received CTRL-C, exiting...");
-    //             break;
-    //         }
-    //     }
-    // }
-
-    Ok(())
+    spf_tracer_read_fd(tracer, stop_rx).await
 }
 
 async fn spf_tracer_create() -> Result<()> {
@@ -211,27 +193,28 @@ fn spf_tracer_make_instance_dir() -> Result<()> {
     let path = Path::new(TRACE_ROOTDIR).join("instances/spf");
 
     if path.exists() && path.is_dir() {
+        trace!("Removing /sys/kernel/debug/tracing/instances/spf...");
         std::fs::remove_dir(&path)?;
     }
 
+    trace!("Creating /sys/kernel/debug/tracing/instances/spf...");
     std::fs::DirBuilder::new().mode(0o766).create(&path)?;
 
     Ok(())
 }
 
 async fn spf_tracer_start(receiver: broadcast::Receiver<()>) -> Result<()> {
-    debug!("Creating /sys/kernel/debug/tracing/instances/spf...");
     spf_tracer_make_instance_dir()?;
 
     spf_tracer_write_file("instances/spf/trace_clock", "mono_raw")?;
     spf_tracer_write_file("kprobe_events", "p:spf_eldu sgx_encl_eldu addr=+0(%si)")?;
     spf_tracer_append_file("kprobe_events", "p:spf_ewb sgx_encl_ewb addr=+0(%si)")?;
-    // spf_tracer_append_file("kprobe_events", "p:exec_event __x64_sys_execve")?;
-    spf_tracer_append_file("kprobe_events", "p:exit_event do_exit")?;
     spf_tracer_write_file("instances/spf/events/kprobes/spf_eldu/enable", "1")?;
     spf_tracer_write_file("instances/spf/events/kprobes/spf_ewb/enable", "1")?;
-    // spf_tracer_write_file("instances/spf/events/kprobes/exec_event/enable", "1")?;
-    spf_tracer_write_file("instances/spf/events/kprobes/exit_event/enable", "1")?;
+
+    // NOTE: for testing only
+    // spf_tracer_append_file("kprobe_events", "p:exit_event do_exit")?;
+    // spf_tracer_write_file("instances/spf/events/kprobes/exit_event/enable", "1")?;
 
     let path = Path::new(TRACE_ROOTDIR).join("instances/spf/trace_pipe");
     let file = File::open(&path).await?;
@@ -268,7 +251,6 @@ async fn main() -> Result<()> {
 
     info!("Starting...");
     spf_tracer_start(shutdown_rx).await?;
-
     info!("Exiting...");
 
     signal_handle.close();
