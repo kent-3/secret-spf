@@ -1,0 +1,15 @@
+[tasks.docker-build]
+description = "Build the project inside a Docker container"
+command = "docker"
+args = [
+  "run",
+  "--rm",
+  "-v",
+  "${PWD}:/usr/src/myapp",
+  "-w",
+  "/usr/src/myapp",
+  "rust:bullseye",
+  "cargo",
+  "build",
+  "--release",
+]

@@ -1,0 +1,22 @@
+[package]
+name = "secret-spf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eyre = { version = "0.6.12" }
+futures = "0.3.30"
+signal-hook = { version = "0.3.17" }
+signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+tokio = { version = "1.38.1", features = [
+  "rt",
+  # "rt-multi-thread", # disable for simplicity
+  "macros",
+  "fs",
+  "io-util",
+  "sync",
+  "time",
+] }
+tracing = { version = "0.1.40" }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+regex = "1.10.5"
