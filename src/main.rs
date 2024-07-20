@@ -11,7 +11,7 @@ use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
     sync::broadcast,
-    time::{interval, sleep, Duration},
+    time::{sleep, Duration},
 };
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
@@ -120,7 +120,6 @@ fn spf_tracer_init() -> Result<()> {
 async fn spf_tracer_read_fd(tracer: SpfTracer, mut stop_rx: broadcast::Receiver<()>) -> Result<()> {
     let reader = BufReader::new(tracer.file);
     let mut lines = reader.lines();
-    let mut interval = interval(Duration::from_secs(1));
     let mut last_timestamp: Option<f64> = None;
     let time_threshold = 1.0;
 
@@ -163,9 +162,6 @@ async fn spf_tracer_read_fd(tracer: SpfTracer, mut stop_rx: broadcast::Receiver<
                     }
                 }
             },
-            _ = interval.tick() => {
-                // This allows the loop to periodically wake up and check for the stop signal
-            }
             _ = stop_rx.recv() => {
                 println!("");
                 break;
