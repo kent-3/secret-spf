@@ -1,9 +1,12 @@
 use eyre::Result;
 use futures::stream::StreamExt;
+use regex::Regex;
 use signal_hook::{consts::signal::*, low_level::exit};
 use signal_hook_tokio::Signals;
+use systemd::journal;
 use tokio::{
-    sync::broadcast,
+    sync::{broadcast, mpsc},
+    task,
     time::{sleep, Duration},
 };
 #[allow(unused)]
@@ -12,6 +15,46 @@ use tracing_subscriber::EnvFilter;
 
 mod tracer;
 use tracer::SpfTracer;
+
+/// Polls for new Journal entries every [Duration]. Provide a [Regex] to further filter the
+/// log outputs.
+fn journal_thread(
+    tx: mpsc::UnboundedSender<String>,
+    sleep_duration: Duration,
+    pattern: Option<Regex>,
+) {
+    let mut journal = journal::OpenOptions::default()
+        .open()
+        .expect("Failed to open journal");
+
+    journal
+        .match_add("SYSLOG_IDENTIFIER", "secretd")
+        .expect("Failed to add match");
+    journal
+        .seek_tail()
+        .expect("Failed to seek to the end of the journal");
+    journal
+        .previous()
+        .expect("Failed to move to the previous journal entry");
+
+    loop {
+        if let Ok(Some(entry)) = journal.next_entry() {
+            if let Some(message) = entry.get("MESSAGE") {
+                let should_send = pattern
+                    .as_ref()
+                    .map(|re| re.is_match(message))
+                    .unwrap_or(true);
+
+                if should_send && tx.send(message.to_string()).is_err() {
+                    break;
+                }
+            }
+        } else {
+            // Add a short sleep to reduce CPU usage
+            std::thread::sleep(sleep_duration);
+        }
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -28,9 +71,33 @@ async fn main() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
-    let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
+    let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
     let signal_handle = signals.handle();
     let signals_task = tokio::spawn(handle_signals(signals, shutdown_tx));
+
+    // Channel must be unbounded because the sender is in a non-async context
+    let (log_tx, mut log_rx) = mpsc::unbounded_channel();
+
+    let sleep_duration = Duration::from_millis(1000);
+    let re = Regex::new(r"executed block").expect("Failed to compile regex");
+
+    // Create a non-async task to check the Journal for new entries
+    debug!("Spawning journal thread...");
+    task::spawn_blocking(move || {
+        journal_thread(log_tx, sleep_duration, Some(re));
+    });
+
+    // Create an async task to handle log messages
+    debug!("Spawning log writer thread...");
+    task::spawn(async move {
+        while let Some(log) = log_rx.recv().await {
+            // Perform desired action with the log message
+            println!("{}", log);
+            // Example: Write to another program or API
+            // send_to_api(log).await;
+        }
+        trace!("loop: log handler")
+    });
 
     let mut tracer = SpfTracer::new()?;
 

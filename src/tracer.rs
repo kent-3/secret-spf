@@ -8,6 +8,7 @@ use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
     sync::broadcast,
+    time::{sleep, Duration},
 };
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
@@ -37,8 +38,8 @@ impl SpfTracer {
         Self::write_file("instances/spf/events/kprobes/spf_ewb/enable", "1")?;
 
         // NOTE: for testing only
-        // spf_tracer_append_file("kprobe_events", "p:exit_event do_exit")?;
-        // spf_tracer_write_file("instances/spf/events/kprobes/exit_event/enable", "1")?;
+        // Self::append_file("kprobe_events", "p:exit_event do_exit")?;
+        // Self::write_file("instances/spf/events/kprobes/exit_event/enable", "1")?;
 
         let path = Path::new(TRACE_ROOTDIR).join("instances/spf/trace_pipe");
         self.file = std::fs::File::open(&path)?;
@@ -99,7 +100,6 @@ impl SpfTracer {
         let log_path = Path::new("spf.log");
         let mut log_file = std::fs::OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(log_path)?;
         log_file.set_permissions(std::fs::Permissions::from_mode(0o666))?;
@@ -107,17 +107,16 @@ impl SpfTracer {
         let canonical_path = std::fs::canonicalize(log_path)?;
         info!("Writing to log file {}", canonical_path.display());
 
-        trace!("Reading from file...");
+        debug!("Reading trace_pipe...");
         loop {
             tokio::select! {
                 line = lines.next_line() => {
                     match line {
                         Ok(Some(l)) => {
                             if let Some(timestamp) = extract_timestamp(&l) {
-                                trace!(timestamp);
                                 if let Some(last) = last_timestamp {
                                     if timestamp - last > time_threshold {
-                                        let break_str = "\n---\n";
+                                        let break_str = "\n";
                                         println!("{}", break_str);
                                         // writeln!(log_file, "{}", break_str)?;
                                     }
@@ -135,13 +134,14 @@ impl SpfTracer {
                     }
                 },
                 _ = stop_rx.recv() => {
-                    println!("");
                     break;
                 }
             }
+            trace!("loop: reading trace_pipe");
+            // sleep(Duration::from_millis(1000)).await;
         }
 
-        trace!("Exited loop");
+        trace!("Exited read trace_pipe loop");
         Ok(())
     }
 
